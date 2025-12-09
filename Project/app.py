@@ -1,14 +1,3 @@
-"""
-app_local_free.py
-
-Free-local PharmaIntel RAG application:
-- Uses LangChain for scraping/indexing/RAG orchestration.
-- Uses sentence-transformers (all-MiniLM-L6-v2) for local embeddings.
-- Uses FAISS for local vector store storage.
-- Uses Ollama (Mistral default) for local LLM chat/RAG responses.
-- Uses Streamlit with enhanced CSS for a beautiful, modern UI.
-"""
-
 import os
 import json
 import streamlit as st
@@ -24,16 +13,13 @@ from langchain_core.documents import Document
 from langchain_community.llms import Ollama
 
 
-# -----------------------
 # Config & Theming
-# -----------------------
 st.set_page_config(
     page_title="PharmaIntel — Local RAG", 
     layout="wide", 
     initial_sidebar_state="expanded"
 )
 
-# --- Aesthetic Custom Theme Styling (CSS Injection) ---
 st.markdown("""
 <style>
 /* Global Variables for Streamlit Theming */
@@ -115,26 +101,18 @@ h1, h2, h3, h4 {
 </style>
 """, unsafe_allow_html=True)
 
-
-# Data sources (from your proposal)
 DATA_SOURCES = {
     "Drugs.com": "https://www.drugs.com",
     "Medscape Drug Reference": "https://reference.medscape.com/drugs",
     "FDA DailyMed": "https://dailymed.nlm.nih.gov/dailymed"
 }
 
-# Where to persist FAISS index and metadata
 PERSIST_DIR = os.path.join(os.getcwd(), "faiss_pharma_db")
 
-# HuggingFace model for embeddings (local, free)
 HF_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
-# Ollama model name (ensure you pulled this using ollama)
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "mistral")  # change default if needed
 
-# -----------------------
-# Helpers
-# -----------------------
 def scrape_with_webbaseloader(url: str) -> str:
     loader = WebBaseLoader(url)
     docs = loader.load()
@@ -146,20 +124,15 @@ def chunk_text(text: str, chunk_size=900, chunk_overlap=150) -> List[str]:
     return splitter.split_text(text)
 
 def build_embeddings_and_faiss(docs: List[Document], persist_dir: str):
-    # Create embeddings object (uses sentence-transformers under the hood)
     hf = HuggingFaceEmbeddings(model_name=HF_EMBEDDING_MODEL, model_kwargs={"device": "cpu"})
     
-    # Check and remove old index
     if os.path.exists(persist_dir):
         shutil.rmtree(persist_dir)
     os.makedirs(persist_dir, exist_ok=True)
     
-    # Build FAISS vector store
     texts = [d.page_content for d in docs]
     metadatas = [d.metadata if d.metadata else {} for d in docs]
     faiss_db = FAISS.from_texts(texts, embedding=hf, metadatas=metadatas)
-    
-    # persist
     faiss_db.save_local(persist_dir)
     return faiss_db
 
@@ -167,7 +140,7 @@ def build_embeddings_and_faiss(docs: List[Document], persist_dir: str):
 def load_faiss(persist_dir: str):
     if not os.path.exists(persist_dir) or not os.listdir(persist_dir):
         return None
-    # Loading the embedding model once
+        
     hf = HuggingFaceEmbeddings(model_name=HF_EMBEDDING_MODEL, model_kwargs={"device": "cpu"})
     faiss_db = FAISS.load_local(
         persist_dir, 
@@ -176,11 +149,8 @@ def load_faiss(persist_dir: str):
     )
     return faiss_db
 
-# -----------------------
-# UI: Sidebar controls
-# -----------------------
-st.sidebar.markdown('## 💊 PharmaIntel: Local RAG')
-mode = st.sidebar.selectbox("Select Application Mode", ["Chat (RAG)", "Scrape & Index"])
+st.sidebar.markdown('## 💊 PharmaIntel')
+mode = st.sidebar.selectbox("Select Application Mode", ["Chat", "Scrape & Index"])
 st.sidebar.markdown("---")
 
 # Global Settings
@@ -196,9 +166,8 @@ if mode == "Scrape & Index":
     recreate_index = st.sidebar.checkbox("Force rebuild index", value=False, help="Delete existing FAISS index before creation.")
     st.sidebar.markdown("---")
 
-# -----------------------
 # Scrape & Index Logic
-# -----------------------
+
 if mode == "Scrape & Index":
     st.title("🌐 Scrape & Index Knowledge Base")
     st.info("Select a method below to build or rebuild your local knowledge vector store.")
@@ -297,9 +266,7 @@ if mode == "Scrape & Index":
                 status.update(label="Indexing failed.", state="error")
 
 
-# -----------------------
-# Chat (RAG) Logic
-# -----------------------
+# Chat Logic
 else:
     st.title("🤖 Chat with Pharma Knowledge")
     
@@ -309,15 +276,12 @@ else:
         st.warning("⚠️ No FAISS index found. Please run the **'Scrape & Index'** mode first.")
         st.stop()
 
-    # 2. Configure LLM/Chain
+    # 2. Configure LLM
     try:
-        # Initializing the model (The @st.cache_resource decorator helps here)
         llm = Ollama(model=st.session_state.ollama_model, base_url="http://localhost:11434")
         
-        # Build retriever
         retriever = faiss_db.as_retriever(search_kwargs={"k": 4})
         
-        # Define a highly directive system prompt (Strict RAG Prompt)
         CUSTOM_PROMPT = """
         You are a highly specialized and accurate pharmaceutical knowledge assistant. 
         Your goal is to answer the user's question accurately and concisely.
@@ -333,7 +297,6 @@ else:
         """
         STRICT_PROMPT = PromptTemplate(template=CUSTOM_PROMPT, input_variables=["context", "question"])
         
-        # Conversational retrieval chain with strict prompt injection
         qa_chain = ConversationalRetrievalChain.from_llm(
             llm=llm,
             retriever=retriever,
@@ -348,13 +311,11 @@ else:
         st.info(f"Check 2: Did you run `ollama pull {st.session_state.ollama_model}` in your terminal?")
         st.stop()
         
-    # Initialize chat history
     if "chat_history" not in st.session_state:
         st.session_state.chat_history = []
         
     st.markdown("---")
     
-    # Display chat history using modern st.chat_message
     for message in st.session_state.chat_history:
         with st.chat_message(message["role"]):
             st.write(message["content"])
@@ -367,33 +328,25 @@ else:
                         st.caption(d.page_content[:300].replace('\n', ' ').strip() + "...")
                         
 
-    # Chat input and processing
     if query := st.chat_input("Ask about a drug, dosage, side effects, or interactions..."):
-        # Display user query in chat
+       
         with st.chat_message("user"):
             st.write(query)
-            
-        # Add query to history
+    
         st.session_state.chat_history.append({"role": "user", "content": query})
 
         # Process the query with RAG chain
         with st.spinner("PharmaIntel is thinking..."):
-            
-            # Prepare history for the ConversationalRetrievalChain (needs tuple format)
-            # The history structure is simplified here to avoid depth errors
             langchain_history = [(h['content'], h['content']) for h in st.session_state.chat_history if h['role'] != 'system']
 
             result = qa_chain({"question": query, "chat_history": langchain_history})
             answer = result["answer"]
             sources = result.get("source_documents", [])
             
-            # Display assistant response
             with st.chat_message("assistant"):
                 st.write(answer)
                 
-                # Display sources using the expander
                 if sources:
-                    # Collect sources and pass them to history for consistent display
                     source_list = []
                     with st.expander("📚 Sources Used"):
                         for d in sources[:4]:
@@ -401,17 +354,14 @@ else:
                             url = d.metadata.get("source_url", d.metadata.get("url", "N/A"))
                             st.markdown(f"**{src}** — {url}")
                             st.caption(d.page_content[:300].replace('\n', ' ').strip() + "...")
-                            source_list.append(d) # Keep a copy for saving to session state
+                            source_list.append(d) 
                         
-            # Add assistant response to history
             st.session_state.chat_history.append({"role": "assistant", "content": answer, "sources": sources})
 
-    # Clear history button at the bottom of the main page
     st.markdown("---")
     if st.button("Clear Conversation History", help="Removes all chat history from this session."):
         st.session_state.chat_history = []
         st.rerun()
 
-# Footer
 st.sidebar.markdown("---")
 st.sidebar.write("⚠️ **Disclaimer:** This RAG application is for **educational/informational use** only and is **not medical advice**.")
